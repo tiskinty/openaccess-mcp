@@ -18,6 +18,7 @@ from .secrets import initialize_secret_store
 
 app = typer.Typer(help="OpenAccess MCP - Secure remote access server")
 console = Console()
+MAX_HTTP_BODY_BYTES = 1024 * 1024
 
 
 @app.command()
@@ -329,7 +330,7 @@ def serve(
     )
 
     class OpenAccessHTTPRequestHandler(BaseHTTPRequestHandler):
-        max_body_bytes = 1024 * 1024
+        max_body_bytes = MAX_HTTP_BODY_BYTES
 
         def _write_json(self, status: int, payload: dict) -> None:
             body = json.dumps(payload).encode("utf-8")
@@ -344,11 +345,14 @@ def serve(
             if content_length <= 0:
                 return {}
             if content_length > self.max_body_bytes:
-                raise ValueError("Request body too large")
+                raise ValueError(
+                    f"Request body too large: {content_length} bytes exceeds limit "
+                    f"of {self.max_body_bytes} bytes"
+                )
             raw = self.rfile.read(content_length)
             return json.loads(raw.decode("utf-8"))
 
-        def do_GET(self):  # noqa: N802
+        def do_GET(self):  # noqa: N802 - required by BaseHTTPRequestHandler
             if self.path == "/health":
                 self._write_json(200, {"status": "ok"})
                 return
@@ -359,7 +363,7 @@ def serve(
 
             self._write_json(404, {"error": "Not found"})
 
-        def do_POST(self):  # noqa: N802
+        def do_POST(self):  # noqa: N802 - required by BaseHTTPRequestHandler
             try:
                 payload = self._read_json()
             except (json.JSONDecodeError, ValueError) as error:
@@ -383,8 +387,9 @@ def serve(
 
             self._write_json(404, {"error": "Not found"})
 
-        def log_message(self, format, *args):  # noqa: A003
-            return
+        def log_message(self, message_format, *args):
+            """Disable default HTTP request logging for cleaner CLI output."""
+            pass
 
     httpd = ThreadingHTTPServer((host, port), OpenAccessHTTPRequestHandler)
 

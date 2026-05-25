@@ -11,14 +11,16 @@ MCP_SECRETS_DIR="${MCP_SECRETS_DIR:-${ROOT_DIR}/examples/secrets}"
 GEMMA_MODEL="${GEMMA_MODEL:-gemma2:2b}"
 OLLAMA_BASE_URL="${OLLAMA_BASE_URL:-http://127.0.0.1:11434}"
 PID_FILE="${ROOT_DIR}/.gemma-mcp-server.pid"
+LOG_DIR="${ROOT_DIR}/logs"
+LOG_FILE="${LOG_DIR}/openaccess-mcp-serve.log"
 
 if ! command -v ollama >/dev/null 2>&1; then
-  echo "ollama is required but not installed."
+  echo "ollama is required but not installed. Visit https://ollama.com for installation instructions."
   exit 1
 fi
 
 if ! command -v openaccess-mcp >/dev/null 2>&1; then
-  echo "openaccess-mcp CLI is required. Install with: pip install -e '.[dev]'"
+  echo "openaccess-mcp CLI is required. From the repository root, install with: pip install -e '.[dev]'"
   exit 1
 fi
 
@@ -33,20 +35,24 @@ if [[ ! -d "${MCP_SECRETS_DIR}" ]]; then
 fi
 
 echo "Ensuring local Gemma model is available: ${GEMMA_MODEL}"
-if ! ollama list | grep -q "${GEMMA_MODEL}"; then
+if ! ollama list | grep -Fq "${GEMMA_MODEL}"; then
+  echo "Pulling ${GEMMA_MODEL} (this may take a while)..."
   ollama pull "${GEMMA_MODEL}"
 fi
 
 if ! curl -fsS "${MCP_BASE_URL}/health" >/dev/null 2>&1; then
   echo "Starting OpenAccess MCP web API on ${MCP_BASE_URL}"
+  mkdir -p "${LOG_DIR}"
   openaccess-mcp serve \
     --host "${MCP_HOST}" \
     --port "${MCP_PORT}" \
     --profiles "${MCP_PROFILES_DIR}" \
     --secrets-dir "${MCP_SECRETS_DIR}" \
-    >/tmp/openaccess-mcp-serve.log 2>&1 &
+    >"${LOG_FILE}" 2>&1 &
   echo $! > "${PID_FILE}"
   sleep 2
+else
+  echo "OpenAccess MCP web API is already running at ${MCP_BASE_URL}"
 fi
 
 mkdir -p "${ROOT_DIR}/examples/gemma"

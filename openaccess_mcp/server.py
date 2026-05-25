@@ -314,7 +314,7 @@ class OpenAccessMCPServer:
 
     async def web_call_tool(self, name: str, arguments: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         if not name:
-            return ToolResult.error_result("Missing required field: name").model_dump()
+            return ToolResult.error_result("Tool name is required").model_dump()
         return await self._dispatch_tool_call(name, arguments or {})
 
     async def web_jsonrpc(self, payload: Dict[str, Any]) -> Dict[str, Any]:
