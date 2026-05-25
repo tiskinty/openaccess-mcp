@@ -5,14 +5,14 @@ This quick start reflects the current behavior of the `0.0.1` repository.
 ## 1) Install
 
 ```bash
-cd /tmp/workspace/tiskinty/openaccess-mcp
+cd openaccess-mcp
 pip install -e ".[dev]"
 ```
 
 ## 2) Inspect sample configuration
 
-- Sample profiles: `/tmp/workspace/tiskinty/openaccess-mcp/examples/profiles/`
-- Sample file-based secrets: `/tmp/workspace/tiskinty/openaccess-mcp/examples/secrets/`
+- Sample profiles: `examples/profiles/`
+- Sample file-based secrets: `examples/secrets/`
 
 List profiles with the CLI:
 

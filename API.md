@@ -4,7 +4,7 @@ This document describes the API that is actually implemented in this repository 
 
 ## Primary interface
 
-Current callable operations are async methods on `OpenAccessMCPServer` in `/tmp/workspace/tiskinty/openaccess-mcp/openaccess_mcp/server.py`.
+Current callable operations are async methods on `OpenAccessMCPServer` in `openaccess_mcp/server.py`.
 
 ### Server construction
 
@@ -224,7 +224,7 @@ Success `data` keys:
 
 Profiles are loaded from `<profiles_dir>/<profile_id>.json`.
 
-See sample files in `/tmp/workspace/tiskinty/openaccess-mcp/examples/profiles/`.
+See sample files in `examples/profiles/`.
 
 Key fields:
 

@@ -31,17 +31,17 @@ The internal MCP server object is initialized, but `_register_tools()` is curren
 
 ## Repository layout
 
-- `/tmp/workspace/tiskinty/openaccess-mcp/openaccess_mcp/server.py` – main orchestration class and async handlers
-- `/tmp/workspace/tiskinty/openaccess-mcp/openaccess_mcp/providers/` – protocol providers
-- `/tmp/workspace/tiskinty/openaccess-mcp/openaccess_mcp/policy/` – policy engine
-- `/tmp/workspace/tiskinty/openaccess-mcp/openaccess_mcp/secrets/` – secret providers/store
-- `/tmp/workspace/tiskinty/openaccess-mcp/openaccess_mcp/audit/` – audit logger and audit CLI
-- `/tmp/workspace/tiskinty/openaccess-mcp/examples/` – sample profiles and sample file-based secrets
+- `openaccess_mcp/server.py` – main orchestration class and async handlers
+- `openaccess_mcp/providers/` – protocol providers
+- `openaccess_mcp/policy/` – policy engine
+- `openaccess_mcp/secrets/` – secret providers/store
+- `openaccess_mcp/audit/` – audit logger and audit CLI
+- `examples/` – sample profiles and sample file-based secrets
 
 ## Install
 
 ```bash
-cd /tmp/workspace/tiskinty/openaccess-mcp
+cd openaccess-mcp
 pip install -e ".[dev]"
 ```
 
@@ -103,7 +103,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-See `/tmp/workspace/tiskinty/openaccess-mcp/API.md` for handler signatures and response format.
+See [API.md](API.md) for handler signatures and response format.
 
 ## Development
 
@@ -116,7 +116,7 @@ Note: at the time of this documentation rewrite, tests pass and lint has existin
 
 ## Related docs
 
-- `/tmp/workspace/tiskinty/openaccess-mcp/QUICKSTART.md`
-- `/tmp/workspace/tiskinty/openaccess-mcp/API.md`
-- `/tmp/workspace/tiskinty/openaccess-mcp/DEPLOYMENT.md`
-- `/tmp/workspace/tiskinty/openaccess-mcp/CONTRIBUTING.md`
+- [QUICKSTART.md](QUICKSTART.md)
+- [API.md](API.md)
+- [DEPLOYMENT.md](DEPLOYMENT.md)
+- [CONTRIBUTING.md](CONTRIBUTING.md)

@@ -7,7 +7,7 @@ This file documents what is currently true in this repository, including known g
 ### Local Python execution
 
 ```bash
-cd /tmp/workspace/tiskinty/openaccess-mcp
+cd openaccess-mcp
 pip install -e ".[dev]"
 openaccess-mcp start --profiles ./examples/profiles --secrets-dir ./examples/secrets
 ```
@@ -20,9 +20,9 @@ Use `OpenAccessMCPServer` directly from Python and call async handlers (`ssh_exe
 
 The repository includes:
 
-- `/tmp/workspace/tiskinty/openaccess-mcp/Dockerfile`
-- `/tmp/workspace/tiskinty/openaccess-mcp/docker-compose.yml`
-- `/tmp/workspace/tiskinty/openaccess-mcp/k8s/deployment.yaml`
+- `Dockerfile`
+- `docker-compose.yml`
+- `k8s/deployment.yaml`
 
 These files are currently **not aligned** with the implemented CLI/server behavior.
 
