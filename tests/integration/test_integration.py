@@ -94,8 +94,8 @@ class TestOpenAccessMCPServer:
         assert server.rdp_provider is not None
 
     @pytest.mark.asyncio
-    async def test_mcp_list_tools_registers_ssh_and_sftp(self, server):
-        """Test MCP tool registration for SSH and SFTP."""
+    async def test_mcp_list_tools_registers_supported_tools(self, server):
+        """Test MCP tool registration for all currently wired tools."""
         list_tools_handler = server.server.request_handlers[mcp_types.ListToolsRequest]
 
         result = await list_tools_handler(mcp_types.ListToolsRequest())
@@ -104,10 +104,15 @@ class TestOpenAccessMCPServer:
         tool_names = {tool.name for tool in result.root.tools}
         assert "ssh.exec" in tool_names
         assert "sftp.transfer" in tool_names
+        assert "rsync.sync" in tool_names
+        assert "tunnel.create" in tool_names
+        assert "tunnel.close" in tool_names
+        assert "vpn.wireguard.toggle" in tool_names
+        assert "rdp.launch" in tool_names
 
     @pytest.mark.asyncio
-    async def test_mcp_call_tool_routes_to_ssh_and_sftp_handlers(self, server):
-        """Test MCP call routing for SSH and SFTP tools."""
+    async def test_mcp_call_tool_routes_to_supported_handlers(self, server):
+        """Test MCP call routing for all currently wired tools."""
         call_tool_handler = server.server.request_handlers[mcp_types.CallToolRequest]
 
         with patch.object(server, "handle_ssh_exec", new=AsyncMock(return_value={"success": True, "data": {"stdout": "ok"}})) as mock_ssh:
@@ -163,6 +168,136 @@ class TestOpenAccessMCPServer:
                 mode=None,
                 caller=None,
                 token=None
+            )
+
+        with patch.object(server, "handle_rsync_sync", new=AsyncMock(return_value={"success": True, "data": {"status": "completed"}})) as mock_rsync:
+            rsync_result = await call_tool_handler(
+                mcp_types.CallToolRequest(
+                    params=mcp_types.CallToolRequestParams(
+                        name="rsync.sync",
+                        arguments={
+                            "profile_id": "test-server",
+                            "direction": "push",
+                            "source": "/tmp/src",
+                            "dest": "/tmp/dest",
+                        },
+                    )
+                )
+            )
+
+            assert isinstance(rsync_result.root, mcp_types.CallToolResult)
+            assert rsync_result.root.isError is False
+            assert rsync_result.root.structuredContent["success"] is True
+            mock_rsync.assert_awaited_once_with(
+                profile_id="test-server",
+                direction="push",
+                source="/tmp/src",
+                dest="/tmp/dest",
+                delete_extras=False,
+                dry_run=True,
+                exclude=None,
+                bandwidth_limit_kbps=None,
+                change_ticket=None,
+                caller=None,
+                token=None,
+            )
+
+        with patch.object(server, "handle_tunnel_create", new=AsyncMock(return_value={"success": True, "data": {"tunnel_id": "t-1"}})) as mock_tunnel_create:
+            tunnel_create_result = await call_tool_handler(
+                mcp_types.CallToolRequest(
+                    params=mcp_types.CallToolRequestParams(
+                        name="tunnel.create",
+                        arguments={
+                            "profile_id": "test-server",
+                            "tunnel_type": "local",
+                            "target_host": "127.0.0.1",
+                            "target_port": 8080,
+                        },
+                    )
+                )
+            )
+
+            assert isinstance(tunnel_create_result.root, mcp_types.CallToolResult)
+            assert tunnel_create_result.root.isError is False
+            assert tunnel_create_result.root.structuredContent["success"] is True
+            mock_tunnel_create.assert_awaited_once_with(
+                profile_id="test-server",
+                tunnel_type="local",
+                listen_host="127.0.0.1",
+                listen_port=0,
+                target_host="127.0.0.1",
+                target_port=8080,
+                ttl_seconds=3600,
+                caller=None,
+                token=None,
+            )
+
+        with patch.object(server, "handle_tunnel_close", new=AsyncMock(return_value={"success": True, "data": {"status": "closed"}})) as mock_tunnel_close:
+            tunnel_close_result = await call_tool_handler(
+                mcp_types.CallToolRequest(
+                    params=mcp_types.CallToolRequestParams(
+                        name="tunnel.close",
+                        arguments={"tunnel_id": "t-1"},
+                    )
+                )
+            )
+
+            assert isinstance(tunnel_close_result.root, mcp_types.CallToolResult)
+            assert tunnel_close_result.root.isError is False
+            assert tunnel_close_result.root.structuredContent["success"] is True
+            mock_tunnel_close.assert_awaited_once_with(
+                tunnel_id="t-1",
+                caller=None,
+                token=None,
+            )
+
+        with patch.object(server, "handle_vpn_wireguard_toggle", new=AsyncMock(return_value={"success": True, "data": {"status": "up"}})) as mock_vpn:
+            vpn_result = await call_tool_handler(
+                mcp_types.CallToolRequest(
+                    params=mcp_types.CallToolRequestParams(
+                        name="vpn.wireguard.toggle",
+                        arguments={
+                            "profile_id": "test-server",
+                            "peer_id": "peer-1",
+                            "action": "up",
+                        },
+                    )
+                )
+            )
+
+            assert isinstance(vpn_result.root, mcp_types.CallToolResult)
+            assert vpn_result.root.isError is False
+            assert vpn_result.root.structuredContent["success"] is True
+            mock_vpn.assert_awaited_once_with(
+                profile_id="test-server",
+                peer_id="peer-1",
+                action="up",
+                config_path=None,
+                interface_name=None,
+                caller=None,
+                token=None,
+            )
+
+        with patch.object(server, "handle_rdp_launch", new=AsyncMock(return_value={"success": True, "data": {"connection_id": "rdp-1"}})) as mock_rdp:
+            rdp_result = await call_tool_handler(
+                mcp_types.CallToolRequest(
+                    params=mcp_types.CallToolRequestParams(
+                        name="rdp.launch",
+                        arguments={"profile_id": "test-server"},
+                    )
+                )
+            )
+
+            assert isinstance(rdp_result.root, mcp_types.CallToolResult)
+            assert rdp_result.root.isError is False
+            assert rdp_result.root.structuredContent["success"] is True
+            mock_rdp.assert_awaited_once_with(
+                profile_id="test-server",
+                ttl_seconds=3600,
+                domain=None,
+                gateway=None,
+                caller=None,
+                token=None,
             )
     
     @pytest.mark.asyncio

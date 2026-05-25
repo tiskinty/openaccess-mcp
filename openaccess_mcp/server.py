@@ -126,6 +126,97 @@ class OpenAccessMCPServer:
                         "required": ["profile_id", "direction", "remote_path", "local_path"],
                         "additionalProperties": False
                     }
+                ),
+                mcp_types.Tool(
+                    name="rsync.sync",
+                    description="Synchronize files over rsync using a configured profile",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "profile_id": {"type": "string"},
+                            "direction": {"type": "string", "enum": ["push", "pull"]},
+                            "source": {"type": "string"},
+                            "dest": {"type": "string"},
+                            "delete_extras": {"type": "boolean", "default": False},
+                            "dry_run": {"type": "boolean", "default": True},
+                            "exclude": {"type": "array", "items": {"type": "string"}},
+                            "bandwidth_limit_kbps": {"type": "integer", "minimum": 1},
+                            "change_ticket": {"type": "string"},
+                            "caller": {"type": "string"},
+                            "token": {"type": "string"}
+                        },
+                        "required": ["profile_id", "direction", "source", "dest"],
+                        "additionalProperties": False
+                    }
+                ),
+                mcp_types.Tool(
+                    name="tunnel.create",
+                    description="Create an SSH tunnel using a configured profile",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "profile_id": {"type": "string"},
+                            "tunnel_type": {"type": "string", "enum": ["local", "remote", "dynamic"]},
+                            "listen_host": {"type": "string", "default": "127.0.0.1"},
+                            "listen_port": {"type": "integer", "minimum": 0, "default": 0},
+                            "target_host": {"type": "string"},
+                            "target_port": {"type": "integer", "minimum": 1},
+                            "ttl_seconds": {"type": "integer", "minimum": 1, "default": 3600},
+                            "caller": {"type": "string"},
+                            "token": {"type": "string"}
+                        },
+                        "required": ["profile_id", "tunnel_type"],
+                        "additionalProperties": False
+                    }
+                ),
+                mcp_types.Tool(
+                    name="tunnel.close",
+                    description="Close an active tunnel by tunnel id",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "tunnel_id": {"type": "string"},
+                            "caller": {"type": "string"},
+                            "token": {"type": "string"}
+                        },
+                        "required": ["tunnel_id"],
+                        "additionalProperties": False
+                    }
+                ),
+                mcp_types.Tool(
+                    name="vpn.wireguard.toggle",
+                    description="Toggle a WireGuard peer up/down",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "profile_id": {"type": "string"},
+                            "peer_id": {"type": "string"},
+                            "action": {"type": "string", "enum": ["up", "down"]},
+                            "config_path": {"type": "string"},
+                            "interface_name": {"type": "string"},
+                            "caller": {"type": "string"},
+                            "token": {"type": "string"}
+                        },
+                        "required": ["profile_id", "peer_id", "action"],
+                        "additionalProperties": False
+                    }
+                ),
+                mcp_types.Tool(
+                    name="rdp.launch",
+                    description="Create an RDP broker session for a profile",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "profile_id": {"type": "string"},
+                            "ttl_seconds": {"type": "integer", "minimum": 1, "default": 3600},
+                            "domain": {"type": "string"},
+                            "gateway": {"type": "string"},
+                            "caller": {"type": "string"},
+                            "token": {"type": "string"}
+                        },
+                        "required": ["profile_id"],
+                        "additionalProperties": False
+                    }
                 )
             ]
 
@@ -153,6 +244,62 @@ class OpenAccessMCPServer:
                     checksum=arguments.get("checksum"),
                     create_dirs=arguments.get("create_dirs", True),
                     mode=arguments.get("mode"),
+                    caller=arguments.get("caller"),
+                    token=arguments.get("token")
+                )
+
+            if name == "rsync.sync":
+                return await self.handle_rsync_sync(
+                    profile_id=arguments["profile_id"],
+                    direction=arguments["direction"],
+                    source=arguments["source"],
+                    dest=arguments["dest"],
+                    delete_extras=arguments.get("delete_extras", False),
+                    dry_run=arguments.get("dry_run", True),
+                    exclude=arguments.get("exclude"),
+                    bandwidth_limit_kbps=arguments.get("bandwidth_limit_kbps"),
+                    change_ticket=arguments.get("change_ticket"),
+                    caller=arguments.get("caller"),
+                    token=arguments.get("token")
+                )
+
+            if name == "tunnel.create":
+                return await self.handle_tunnel_create(
+                    profile_id=arguments["profile_id"],
+                    tunnel_type=arguments["tunnel_type"],
+                    listen_host=arguments.get("listen_host", "127.0.0.1"),
+                    listen_port=arguments.get("listen_port", 0),
+                    target_host=arguments.get("target_host"),
+                    target_port=arguments.get("target_port"),
+                    ttl_seconds=arguments.get("ttl_seconds", 3600),
+                    caller=arguments.get("caller"),
+                    token=arguments.get("token")
+                )
+
+            if name == "tunnel.close":
+                return await self.handle_tunnel_close(
+                    tunnel_id=arguments["tunnel_id"],
+                    caller=arguments.get("caller"),
+                    token=arguments.get("token")
+                )
+
+            if name == "vpn.wireguard.toggle":
+                return await self.handle_vpn_wireguard_toggle(
+                    profile_id=arguments["profile_id"],
+                    peer_id=arguments["peer_id"],
+                    action=arguments["action"],
+                    config_path=arguments.get("config_path"),
+                    interface_name=arguments.get("interface_name"),
+                    caller=arguments.get("caller"),
+                    token=arguments.get("token")
+                )
+
+            if name == "rdp.launch":
+                return await self.handle_rdp_launch(
+                    profile_id=arguments["profile_id"],
+                    ttl_seconds=arguments.get("ttl_seconds", 3600),
+                    domain=arguments.get("domain"),
+                    gateway=arguments.get("gateway"),
                     caller=arguments.get("caller"),
                     token=arguments.get("token")
                 )

@@ -237,6 +237,76 @@ Key fields:
 
 By default, the global auth provider is `NoAuthProvider` (`openaccess_mcp/auth.py`), which returns an admin-like context for development/testing.
 
-## MCP registration note
+## MCP endpoints (wired)
 
-The server object exists, but `_register_tools()` is currently empty. This means documentation that assumes fully registered MCP tool schemas/endpoints does not match the present implementation.
+`OpenAccessMCPServer._register_tools()` now wires MCP request handlers for:
+
+- `tools/list`
+- `tools/call`
+
+### Registered MCP tools
+
+- `ssh.exec`
+- `sftp.transfer`
+- `rsync.sync`
+- `tunnel.create`
+- `tunnel.close`
+- `vpn.wireguard.toggle`
+- `rdp.launch`
+
+### Setup example (stdio server)
+
+```bash
+openaccess-mcp start --profiles ./examples/profiles --secrets-dir ./examples/secrets
+```
+
+### Usage examples (JSON-RPC payloads)
+
+List tools:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/list",
+  "params": {}
+}
+```
+
+Call `ssh.exec`:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "tools/call",
+  "params": {
+    "name": "ssh.exec",
+    "arguments": {
+      "profile_id": "dev-test-01",
+      "command": "uname -a",
+      "caller": "devuser"
+    }
+  }
+}
+```
+
+Call `sftp.transfer`:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "method": "tools/call",
+  "params": {
+    "name": "sftp.transfer",
+    "arguments": {
+      "profile_id": "dev-test-01",
+      "direction": "get",
+      "remote_path": "/tmp/remote.txt",
+      "local_path": "/tmp/local.txt",
+      "caller": "devuser"
+    }
+  }
+}
+```
