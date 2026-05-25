@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from mcp import types as mcp_types
 from mcp.server import Server
 from mcp.server.models import InitializationOptions
 from mcp.server.stdio import stdio_server
@@ -83,9 +84,80 @@ class OpenAccessMCPServer:
     
     def _register_tools(self):
         """Register MCP tools using the new API."""
-        # Note: MCP v1.13.1 doesn't support decorator-based tool registration
-        # Tools are handled through the server's built-in capabilities and request handling
-        pass
+        @self.server.list_tools()
+        async def list_tools() -> List[mcp_types.Tool]:
+            return [
+                mcp_types.Tool(
+                    name="ssh.exec",
+                    description="Execute an SSH command on a configured profile",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "profile_id": {"type": "string"},
+                            "command": {"type": "string"},
+                            "pty": {"type": "boolean", "default": False},
+                            "sudo": {"type": "boolean", "default": False},
+                            "timeout_seconds": {"type": "integer", "minimum": 1, "default": 60},
+                            "dry_run": {"type": "boolean", "default": False},
+                            "change_ticket": {"type": "string"},
+                            "caller": {"type": "string"},
+                            "token": {"type": "string"}
+                        },
+                        "required": ["profile_id", "command"],
+                        "additionalProperties": False
+                    }
+                ),
+                mcp_types.Tool(
+                    name="sftp.transfer",
+                    description="Transfer a file over SFTP using a configured profile",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "profile_id": {"type": "string"},
+                            "direction": {"type": "string", "enum": ["get", "put"]},
+                            "remote_path": {"type": "string"},
+                            "local_path": {"type": "string"},
+                            "checksum": {"type": "string"},
+                            "create_dirs": {"type": "boolean", "default": True},
+                            "mode": {"type": "string"},
+                            "caller": {"type": "string"},
+                            "token": {"type": "string"}
+                        },
+                        "required": ["profile_id", "direction", "remote_path", "local_path"],
+                        "additionalProperties": False
+                    }
+                )
+            ]
+
+        @self.server.call_tool()
+        async def call_tool(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+            if name == "ssh.exec":
+                return await self.handle_ssh_exec(
+                    profile_id=arguments["profile_id"],
+                    command=arguments["command"],
+                    pty=arguments.get("pty", False),
+                    sudo=arguments.get("sudo", False),
+                    timeout_seconds=arguments.get("timeout_seconds", 60),
+                    dry_run=arguments.get("dry_run", False),
+                    change_ticket=arguments.get("change_ticket"),
+                    caller=arguments.get("caller"),
+                    token=arguments.get("token")
+                )
+
+            if name == "sftp.transfer":
+                return await self.handle_sftp_transfer(
+                    profile_id=arguments["profile_id"],
+                    direction=arguments["direction"],
+                    remote_path=arguments["remote_path"],
+                    local_path=arguments["local_path"],
+                    checksum=arguments.get("checksum"),
+                    create_dirs=arguments.get("create_dirs", True),
+                    mode=arguments.get("mode"),
+                    caller=arguments.get("caller"),
+                    token=arguments.get("token")
+                )
+
+            return ToolResult.error_result(f"Unknown tool: {name}").model_dump()
     
     # Method aliases for backward compatibility with tests
     async def ssh_exec(self, *args, **kwargs):

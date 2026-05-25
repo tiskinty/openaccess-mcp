@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch, Mock
 import json
 
+from mcp import types as mcp_types
 from openaccess_mcp.server import OpenAccessMCPServer
 from openaccess_mcp.types import Profile, AuthRef, Policy
 from openaccess_mcp.secrets.store import SecretStore
@@ -91,6 +92,78 @@ class TestOpenAccessMCPServer:
         assert server.tunnel_provider is not None
         assert server.vpn_provider is not None
         assert server.rdp_provider is not None
+
+    @pytest.mark.asyncio
+    async def test_mcp_list_tools_registers_ssh_and_sftp(self, server):
+        """Test MCP tool registration for SSH and SFTP."""
+        list_tools_handler = server.server.request_handlers[mcp_types.ListToolsRequest]
+
+        result = await list_tools_handler(mcp_types.ListToolsRequest())
+
+        assert isinstance(result.root, mcp_types.ListToolsResult)
+        tool_names = {tool.name for tool in result.root.tools}
+        assert "ssh.exec" in tool_names
+        assert "sftp.transfer" in tool_names
+
+    @pytest.mark.asyncio
+    async def test_mcp_call_tool_routes_to_ssh_and_sftp_handlers(self, server):
+        """Test MCP call routing for SSH and SFTP tools."""
+        call_tool_handler = server.server.request_handlers[mcp_types.CallToolRequest]
+
+        with patch.object(server, "handle_ssh_exec", new=AsyncMock(return_value={"success": True, "data": {"stdout": "ok"}})) as mock_ssh:
+            ssh_result = await call_tool_handler(
+                mcp_types.CallToolRequest(
+                    params=mcp_types.CallToolRequestParams(
+                        name="ssh.exec",
+                        arguments={"profile_id": "test-server", "command": "echo ok"}
+                    )
+                )
+            )
+
+            assert isinstance(ssh_result.root, mcp_types.CallToolResult)
+            assert ssh_result.root.isError is False
+            assert ssh_result.root.structuredContent["success"] is True
+            mock_ssh.assert_awaited_once_with(
+                profile_id="test-server",
+                command="echo ok",
+                pty=False,
+                sudo=False,
+                timeout_seconds=60,
+                dry_run=False,
+                change_ticket=None,
+                caller=None,
+                token=None
+            )
+
+        with patch.object(server, "handle_sftp_transfer", new=AsyncMock(return_value={"success": True, "data": {"status": "completed"}})) as mock_sftp:
+            sftp_result = await call_tool_handler(
+                mcp_types.CallToolRequest(
+                    params=mcp_types.CallToolRequestParams(
+                        name="sftp.transfer",
+                        arguments={
+                            "profile_id": "test-server",
+                            "direction": "get",
+                            "remote_path": "/remote/file.txt",
+                            "local_path": "/tmp/file.txt"
+                        }
+                    )
+                )
+            )
+
+            assert isinstance(sftp_result.root, mcp_types.CallToolResult)
+            assert sftp_result.root.isError is False
+            assert sftp_result.root.structuredContent["success"] is True
+            mock_sftp.assert_awaited_once_with(
+                profile_id="test-server",
+                direction="get",
+                remote_path="/remote/file.txt",
+                local_path="/tmp/file.txt",
+                checksum=None,
+                create_dirs=True,
+                mode=None,
+                caller=None,
+                token=None
+            )
     
     @pytest.mark.asyncio
     async def test_profile_loading(self, server):

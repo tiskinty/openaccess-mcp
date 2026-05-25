@@ -13,7 +13,8 @@ This repository currently provides two practical ways to use the project:
 
 ### MCP integration status
 
-The internal MCP server object is initialized, but `_register_tools()` is currently a no-op in `openaccess_mcp/server.py`. That means tool registration is not wired yet in this branch.
+The internal MCP server now registers MCP tools for `ssh.exec` and `sftp.transfer` via `tools/list` and `tools/call`.
+Other protocol handlers remain available through the Python API (`OpenAccessMCPServer` async methods).
 
 ## What is implemented
 
