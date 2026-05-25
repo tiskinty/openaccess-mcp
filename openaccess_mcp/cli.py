@@ -1,7 +1,9 @@
 """CLI for OpenAccess MCP."""
 
 import asyncio
+import json
 import sys
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Optional
 
@@ -290,6 +292,114 @@ def version():
     """Show version information."""
     from . import __version__
     console.print(f"[bold blue]OpenAccess MCP[/bold blue] version {__version__}")
+
+
+@app.command()
+def serve(
+    host: str = typer.Option(
+        "127.0.0.1",
+        "--host",
+        help="Host interface for the web API server"
+    ),
+    port: int = typer.Option(
+        8000,
+        "--port",
+        help="Port for the web API server"
+    ),
+    profiles: Path = typer.Option(
+        "./profiles",
+        "--profiles",
+        "-p",
+        help="Directory containing profile JSON files"
+    ),
+    secrets_dir: Optional[Path] = typer.Option(
+        None,
+        "--secrets-dir",
+        help="Directory for file-based secrets"
+    ),
+):
+    """Serve MCP tools over HTTP endpoints."""
+    if not profiles.exists():
+        console.print(f"[red]Error: Profiles directory not found: {profiles}[/red]")
+        raise typer.Exit(code=1)
+
+    server = OpenAccessMCPServer(
+        profiles_dir=profiles,
+        secrets_dir=secrets_dir,
+    )
+
+    class OpenAccessHTTPRequestHandler(BaseHTTPRequestHandler):
+        max_body_bytes = 1024 * 1024
+
+        def _write_json(self, status: int, payload: dict) -> None:
+            body = json.dumps(payload).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _read_json(self) -> dict:
+            content_length = int(self.headers.get("Content-Length", "0"))
+            if content_length <= 0:
+                return {}
+            if content_length > self.max_body_bytes:
+                raise ValueError("Request body too large")
+            raw = self.rfile.read(content_length)
+            return json.loads(raw.decode("utf-8"))
+
+        def do_GET(self):  # noqa: N802
+            if self.path == "/health":
+                self._write_json(200, {"status": "ok"})
+                return
+
+            if self.path == "/api/v1/tools":
+                self._write_json(200, asyncio.run(server.web_list_tools()))
+                return
+
+            self._write_json(404, {"error": "Not found"})
+
+        def do_POST(self):  # noqa: N802
+            try:
+                payload = self._read_json()
+            except (json.JSONDecodeError, ValueError) as error:
+                self._write_json(400, {"error": str(error)})
+                return
+
+            if self.path == "/api/v1/tools/call":
+                response = asyncio.run(
+                    server.web_call_tool(
+                        name=payload.get("name"),
+                        arguments=payload.get("arguments"),
+                    )
+                )
+                self._write_json(200, response)
+                return
+
+            if self.path == "/api/v1/mcp":
+                response = asyncio.run(server.web_jsonrpc(payload))
+                self._write_json(200, response)
+                return
+
+            self._write_json(404, {"error": "Not found"})
+
+        def log_message(self, format, *args):  # noqa: A003
+            return
+
+    httpd = ThreadingHTTPServer((host, port), OpenAccessHTTPRequestHandler)
+
+    console.print(
+        f"[green]✓[/green] Web API server listening on http://{host}:{port}\n"
+        f"[dim]GET /health, GET /api/v1/tools, POST /api/v1/tools/call, POST /api/v1/mcp[/dim]"
+    )
+
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        httpd.server_close()
+        asyncio.run(server.cleanup())
 
 
 if __name__ == "__main__":

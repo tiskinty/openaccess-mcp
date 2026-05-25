@@ -299,6 +299,89 @@ class TestOpenAccessMCPServer:
                 caller=None,
                 token=None,
             )
+
+    @pytest.mark.asyncio
+    async def test_web_api_list_tools_returns_supported_tools(self, server):
+        """Test web API tool listing."""
+        result = await server.web_list_tools()
+
+        tool_names = {tool["name"] for tool in result["tools"]}
+        assert "ssh.exec" in tool_names
+        assert "sftp.transfer" in tool_names
+        assert "rsync.sync" in tool_names
+        assert "tunnel.create" in tool_names
+        assert "tunnel.close" in tool_names
+        assert "vpn.wireguard.toggle" in tool_names
+        assert "rdp.launch" in tool_names
+
+    @pytest.mark.asyncio
+    async def test_web_api_call_tool_routes_to_handlers(self, server):
+        """Test web API tool call routing."""
+        with patch.object(server, "handle_ssh_exec", new=AsyncMock(return_value={"success": True, "data": {"stdout": "ok"}})) as mock_ssh:
+            result = await server.web_call_tool(
+                name="ssh.exec",
+                arguments={"profile_id": "test-server", "command": "echo ok"},
+            )
+
+            assert result["success"] is True
+            mock_ssh.assert_awaited_once_with(
+                profile_id="test-server",
+                command="echo ok",
+                pty=False,
+                sudo=False,
+                timeout_seconds=60,
+                dry_run=False,
+                change_ticket=None,
+                caller=None,
+                token=None,
+            )
+
+    @pytest.mark.asyncio
+    async def test_web_api_jsonrpc_tools_methods(self, server):
+        """Test web API JSON-RPC dispatch."""
+        list_result = await server.web_jsonrpc(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/list",
+                "params": {},
+            }
+        )
+
+        assert list_result["id"] == 1
+        assert "tools" in list_result["result"]
+
+        with patch.object(server, "handle_sftp_transfer", new=AsyncMock(return_value={"success": True, "data": {"status": "completed"}})) as mock_sftp:
+            call_result = await server.web_jsonrpc(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "sftp.transfer",
+                        "arguments": {
+                            "profile_id": "test-server",
+                            "direction": "get",
+                            "remote_path": "/remote/file.txt",
+                            "local_path": "/tmp/file.txt",
+                        },
+                    },
+                }
+            )
+
+            assert call_result["id"] == 2
+            assert call_result["result"]["success"] is True
+            mock_sftp.assert_awaited_once()
+
+        unknown_result = await server.web_jsonrpc(
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "unknown/method",
+            }
+        )
+        assert unknown_result["id"] == 3
+        assert unknown_result["error"]["code"] == -32601
     
     @pytest.mark.asyncio
     async def test_profile_loading(self, server):

@@ -10,6 +10,7 @@ This repository currently provides two practical ways to use the project:
 
 1. **As a Python library**, by creating `OpenAccessMCPServer` and calling its async handler methods (for example `ssh_exec`, `sftp_transfer`, `rsync_sync`, `tunnel_create`).
 2. **As a CLI utility** for server bootstrap and audit tooling (`openaccess-mcp ...`, `openaccess-audit ...`).
+3. **As an HTTP web API server** for MCP-compatible tool discovery/calls (`openaccess-mcp serve`).
 
 ### MCP integration status
 
@@ -66,11 +67,19 @@ openaccess-mcp --help
 Commands currently available:
 
 - `openaccess-mcp start`
+- `openaccess-mcp serve`
 - `openaccess-mcp profiles`
 - `openaccess-mcp audit`
 - `openaccess-mcp verify`
 - `openaccess-mcp generate-keys`
 - `openaccess-mcp version`
+
+Web API endpoints provided by `openaccess-mcp serve`:
+
+- `GET /health`
+- `GET /api/v1/tools`
+- `POST /api/v1/tools/call`
+- `POST /api/v1/mcp`
 
 ### Audit CLI
 
@@ -114,6 +123,7 @@ asyncio.run(main())
 ```
 
 See [API.md](API.md) for handler signatures and response format.
+See [examples/setup_local_gemma_mcp.sh](examples/setup_local_gemma_mcp.sh) for a local Gemma setup example.
 
 ## Development
 

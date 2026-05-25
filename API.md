@@ -260,6 +260,23 @@ By default, the global auth provider is `NoAuthProvider` (`openaccess_mcp/auth.p
 openaccess-mcp start --profiles ./examples/profiles --secrets-dir ./examples/secrets
 ```
 
+### Setup example (web API server)
+
+```bash
+openaccess-mcp serve \
+  --host 127.0.0.1 \
+  --port 8000 \
+  --profiles ./examples/profiles \
+  --secrets-dir ./examples/secrets
+```
+
+### Web API endpoints
+
+- `GET /health`
+- `GET /api/v1/tools`
+- `POST /api/v1/tools/call`
+- `POST /api/v1/mcp` (JSON-RPC for `tools/list` and `tools/call`)
+
 ### Usage examples (JSON-RPC payloads)
 
 List tools:
@@ -310,3 +327,29 @@ Call `sftp.transfer`:
   }
 }
 ```
+
+Web API tool call (`POST /api/v1/tools/call`):
+
+```json
+{
+  "name": "ssh.exec",
+  "arguments": {
+    "profile_id": "dev-test-01",
+    "command": "uname -a",
+    "caller": "devuser"
+  }
+}
+```
+
+## Local Gemma setup script (example)
+
+Use the included script to wire local OpenAccess MCP web endpoints with a local Ollama Gemma model:
+
+```bash
+./examples/setup_local_gemma_mcp.sh
+```
+
+The script generates:
+
+- `examples/gemma/gemma-mcp-config.json`
+- `examples/gemma/ollama-tooling-request.json`

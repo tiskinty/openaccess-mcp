@@ -9,12 +9,19 @@ This file documents what is currently true in this repository, including known g
 ```bash
 cd openaccess-mcp
 pip install -e ".[dev]"
-openaccess-mcp start --profiles ./examples/profiles --secrets-dir ./examples/secrets
+openaccess-mcp serve --host 0.0.0.0 --port 8000 --profiles ./examples/profiles --secrets-dir ./examples/secrets
 ```
 
 ### Programmatic usage
 
 Use `OpenAccessMCPServer` directly from Python and call async handlers (`ssh_exec`, `sftp_transfer`, `rsync_sync`, etc.).
+
+### Web API endpoints
+
+- `GET /health`
+- `GET /api/v1/tools`
+- `POST /api/v1/tools/call`
+- `POST /api/v1/mcp`
 
 ## Container and orchestration assets
 
@@ -28,8 +35,7 @@ These files are currently **not aligned** with the implemented CLI/server behavi
 
 ### Known mismatches
 
-- Docker `CMD` uses `openaccess-mcp serve --host --port`, but the CLI command currently implemented is `openaccess-mcp start` with different options.
-- Compose/Kubernetes configs assume host/port/env-driven runtime and HTTP-style health semantics that are not represented by the current Typer CLI entrypoints.
+- `docker-compose.yml` and `k8s/deployment.yaml` still assume additional environment-driven wiring (for example secrets/audit paths and full health/metrics strategy) that is not fully represented in current runtime options.
 - Deployment manifests should be treated as draft scaffolding until runtime interface alignment is completed.
 
 ## Recommendation for current users

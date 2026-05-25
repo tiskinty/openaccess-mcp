@@ -105,7 +105,38 @@ Example payload for `tools/call` (`ssh.exec`):
 }
 ```
 
-## 6) Audit tooling
+## 6) Start HTTP web API endpoints
+
+```bash
+openaccess-mcp serve \
+  --host 127.0.0.1 \
+  --port 8000 \
+  --profiles ./examples/profiles \
+  --secrets-dir ./examples/secrets
+```
+
+Available endpoints:
+
+- `GET /health`
+- `GET /api/v1/tools`
+- `POST /api/v1/tools/call`
+- `POST /api/v1/mcp`
+
+Example:
+
+```bash
+curl -sS http://127.0.0.1:8000/api/v1/tools
+```
+
+## 7) Local Gemma connection script
+
+```bash
+./examples/setup_local_gemma_mcp.sh
+```
+
+This script pulls a local Gemma model (via Ollama), starts the MCP web API if needed, and writes generated request/config files under `examples/gemma/`.
+
+## 8) Audit tooling
 
 Generate keys:
 
@@ -125,7 +156,7 @@ Verify chain integrity:
 openaccess-audit verify ./audit/audit.log
 ```
 
-## 7) Validate your environment
+## 9) Validate your environment
 
 ```bash
 make test
@@ -139,5 +170,4 @@ At rewrite time:
 
 ## Current limitations
 
-- The stdio MCP server is wired for tool registration/calls, but no separate HTTP API is implemented in this branch.
 - Some deployment assets still assume commands/endpoints that do not exist in the current CLI implementation.
