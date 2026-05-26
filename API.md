@@ -346,10 +346,15 @@ Web API tool call (`POST /api/v1/tools/call`):
 Use the included script to wire local OpenAccess MCP web endpoints with a local Ollama Gemma model:
 
 ```bash
-./examples/setup_local_gemma_mcp.sh
+./examples/setup_local_gemma_mcp.sh --background
 ```
 
 The script generates:
 
 - `examples/gemma/gemma-mcp-config.json`
 - `examples/gemma/ollama-tooling-request.json`
+
+Optional flags:
+
+- `--background`: start MCP web API automatically if it's not already running
+- `--install-startup`: install and enable a user-level systemd startup service for MCP

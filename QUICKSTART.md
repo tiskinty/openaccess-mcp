@@ -131,10 +131,13 @@ curl -sS http://127.0.0.1:8000/api/v1/tools
 ## 7) Local Gemma connection script
 
 ```bash
-./examples/setup_local_gemma_mcp.sh
+./examples/setup_local_gemma_mcp.sh --background
 ```
 
-This script pulls a local Gemma model (via Ollama), starts the MCP web API if needed, and writes generated request/config files under `examples/gemma/`.
+This script pulls a local Gemma model (via Ollama), writes generated request/config files under `examples/gemma/`, and can:
+
+- start MCP automatically with `--background`
+- install a user startup service (Linux/systemd) with `--install-startup`
 
 ## 8) Audit tooling
 

@@ -13,6 +13,88 @@ OLLAMA_BASE_URL="${OLLAMA_BASE_URL:-http://127.0.0.1:11434}"
 PID_FILE="${ROOT_DIR}/.gemma-mcp-server.pid"
 LOG_DIR="${ROOT_DIR}/logs"
 LOG_FILE="${LOG_DIR}/openaccess-mcp-serve.log"
+RUN_MCP_BACKGROUND=0
+INSTALL_STARTUP=0
+STARTED_MCP=0
+
+usage() {
+  cat <<EOF
+Usage: $0 [--background] [--install-startup]
+
+Options:
+  --background       Start OpenAccess MCP web API in the background when not running
+  --install-startup  Install and enable a user-level systemd startup service (Linux)
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --background)
+      RUN_MCP_BACKGROUND=1
+      ;;
+    --install-startup)
+      INSTALL_STARTUP=1
+      RUN_MCP_BACKGROUND=1
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1"
+      usage
+      exit 1
+      ;;
+  esac
+  shift
+done
+
+start_mcp_background() {
+  mkdir -p "${LOG_DIR}"
+  openaccess-mcp serve \
+    --host "${MCP_HOST}" \
+    --port "${MCP_PORT}" \
+    --profiles "${MCP_PROFILES_DIR}" \
+    --secrets-dir "${MCP_SECRETS_DIR}" \
+    >"${LOG_FILE}" 2>&1 &
+  echo $! > "${PID_FILE}"
+  STARTED_MCP=1
+}
+
+install_startup_service() {
+  if ! command -v systemctl >/dev/null 2>&1; then
+    echo "systemctl not found; skipping startup service installation."
+    return
+  fi
+
+  local service_dir="${HOME}/.config/systemd/user"
+  local service_file="${service_dir}/openaccess-mcp.service"
+  local openaccess_mcp_bin
+  openaccess_mcp_bin="$(command -v openaccess-mcp)"
+
+  mkdir -p "${service_dir}"
+  cat > "${service_file}" <<EOF
+[Unit]
+Description=OpenAccess MCP Web API
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=${openaccess_mcp_bin} serve --host ${MCP_HOST} --port ${MCP_PORT} --profiles ${MCP_PROFILES_DIR} --secrets-dir ${MCP_SECRETS_DIR}
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+EOF
+
+  if systemctl --user daemon-reload >/dev/null 2>&1 && systemctl --user enable --now openaccess-mcp.service >/dev/null 2>&1; then
+    echo "Installed startup service: ${service_file}"
+    echo "Manage it with: systemctl --user status openaccess-mcp.service"
+  else
+    echo "Unable to enable user startup service automatically."
+    echo "Startup file written to: ${service_file}"
+  fi
+}
 
 if ! command -v ollama >/dev/null 2>&1; then
   echo "ollama is required but not installed. Visit https://ollama.com for installation instructions."
@@ -41,18 +123,21 @@ if ! ollama list | grep -Fq "${GEMMA_MODEL}"; then
 fi
 
 if ! curl -fsS "${MCP_BASE_URL}/health" >/dev/null 2>&1; then
-  echo "Starting OpenAccess MCP web API on ${MCP_BASE_URL}"
-  mkdir -p "${LOG_DIR}"
-  openaccess-mcp serve \
-    --host "${MCP_HOST}" \
-    --port "${MCP_PORT}" \
-    --profiles "${MCP_PROFILES_DIR}" \
-    --secrets-dir "${MCP_SECRETS_DIR}" \
-    >"${LOG_FILE}" 2>&1 &
-  echo $! > "${PID_FILE}"
-  sleep 2
+  if [[ "${RUN_MCP_BACKGROUND}" -eq 1 ]]; then
+    echo "Starting OpenAccess MCP web API on ${MCP_BASE_URL}"
+    start_mcp_background
+    sleep 2
+  else
+    echo "OpenAccess MCP web API is not running at ${MCP_BASE_URL}."
+    echo "Start it first, or rerun this script with --background."
+    exit 1
+  fi
 else
   echo "OpenAccess MCP web API is already running at ${MCP_BASE_URL}"
+fi
+
+if [[ "${INSTALL_STARTUP}" -eq 1 ]]; then
+  install_startup_service
 fi
 
 mkdir -p "${ROOT_DIR}/examples/gemma"
@@ -129,5 +214,7 @@ echo "curl -sS ${OLLAMA_BASE_URL}/api/chat \\"
 echo "  -H 'Content-Type: application/json' \\"
 echo "  -d @${ROOT_DIR}/examples/gemma/ollama-tooling-request.json"
 echo
-echo "If this script started MCP web API, stop it with:"
-echo "  kill \$(cat ${PID_FILE}) && rm -f ${PID_FILE}"
+if [[ "${STARTED_MCP}" -eq 1 ]]; then
+  echo "If this script started MCP web API, stop it with:"
+  echo "  kill \$(cat ${PID_FILE}) && rm -f ${PID_FILE}"
+fi
