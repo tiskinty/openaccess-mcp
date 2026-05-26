@@ -1,14 +1,13 @@
 """Main MCP server for OpenAccess MCP."""
 
 import asyncio
-import hashlib
 import json
 import signal
 import sys
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from mcp import types as mcp_types
 from mcp.server import Server
 from mcp.server.models import InitializationOptions
 from mcp.server.stdio import stdio_server
@@ -80,12 +79,352 @@ class OpenAccessMCPServer:
         
         # Return anonymous context
         return await self.auth_provider.authenticate({"username": "anonymous", "password": "admin"})
+
+    def _tool_definitions(self) -> List[mcp_types.Tool]:
+        return [
+            mcp_types.Tool(
+                name="ssh.exec",
+                description="Execute an SSH command on a configured profile",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "profile_id": {"type": "string"},
+                        "command": {"type": "string"},
+                        "pty": {"type": "boolean", "default": False},
+                        "sudo": {"type": "boolean", "default": False},
+                        "timeout_seconds": {"type": "integer", "minimum": 1, "default": 60},
+                        "dry_run": {"type": "boolean", "default": False},
+                        "change_ticket": {"type": "string"},
+                        "caller": {"type": "string"},
+                        "token": {"type": "string"},
+                    },
+                    "required": ["profile_id", "command"],
+                    "additionalProperties": False,
+                },
+            ),
+            mcp_types.Tool(
+                name="sftp.transfer",
+                description="Transfer a file over SFTP using a configured profile",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "profile_id": {"type": "string"},
+                        "direction": {"type": "string", "enum": ["get", "put"]},
+                        "remote_path": {"type": "string"},
+                        "local_path": {"type": "string"},
+                        "checksum": {"type": "string"},
+                        "create_dirs": {"type": "boolean", "default": True},
+                        "mode": {"type": "string"},
+                        "caller": {"type": "string"},
+                        "token": {"type": "string"},
+                    },
+                    "required": ["profile_id", "direction", "remote_path", "local_path"],
+                    "additionalProperties": False,
+                },
+            ),
+            mcp_types.Tool(
+                name="rsync.sync",
+                description="Synchronize files over rsync using a configured profile",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "profile_id": {"type": "string"},
+                        "direction": {"type": "string", "enum": ["push", "pull"]},
+                        "source": {"type": "string"},
+                        "dest": {"type": "string"},
+                        "delete_extras": {"type": "boolean", "default": False},
+                        "dry_run": {"type": "boolean", "default": True},
+                        "exclude": {"type": "array", "items": {"type": "string"}},
+                        "bandwidth_limit_kbps": {"type": "integer", "minimum": 1},
+                        "change_ticket": {"type": "string"},
+                        "caller": {"type": "string"},
+                        "token": {"type": "string"},
+                    },
+                    "required": ["profile_id", "direction", "source", "dest"],
+                    "additionalProperties": False,
+                },
+            ),
+            mcp_types.Tool(
+                name="tunnel.create",
+                description="Create an SSH tunnel using a configured profile",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "profile_id": {"type": "string"},
+                        "tunnel_type": {"type": "string", "enum": ["local", "remote", "dynamic"]},
+                        "listen_host": {"type": "string", "default": "127.0.0.1"},
+                        "listen_port": {"type": "integer", "minimum": 0, "default": 0},
+                        "target_host": {"type": "string"},
+                        "target_port": {"type": "integer", "minimum": 1},
+                        "ttl_seconds": {"type": "integer", "minimum": 1, "default": 3600},
+                        "caller": {"type": "string"},
+                        "token": {"type": "string"},
+                    },
+                    "required": ["profile_id", "tunnel_type"],
+                    "additionalProperties": False,
+                },
+            ),
+            mcp_types.Tool(
+                name="tunnel.close",
+                description="Close an active tunnel by tunnel id",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "tunnel_id": {"type": "string"},
+                        "caller": {"type": "string"},
+                        "token": {"type": "string"},
+                    },
+                    "required": ["tunnel_id"],
+                    "additionalProperties": False,
+                },
+            ),
+            mcp_types.Tool(
+                name="vpn.wireguard.toggle",
+                description="Toggle a WireGuard peer up/down",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "profile_id": {"type": "string"},
+                        "peer_id": {"type": "string"},
+                        "action": {"type": "string", "enum": ["up", "down"]},
+                        "config_path": {"type": "string"},
+                        "interface_name": {"type": "string"},
+                        "caller": {"type": "string"},
+                        "token": {"type": "string"},
+                    },
+                    "required": ["profile_id", "peer_id", "action"],
+                    "additionalProperties": False,
+                },
+            ),
+            mcp_types.Tool(
+                name="rdp.launch",
+                description="Create an RDP broker session for a profile",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "profile_id": {"type": "string"},
+                        "ttl_seconds": {"type": "integer", "minimum": 1, "default": 3600},
+                        "domain": {"type": "string"},
+                        "gateway": {"type": "string"},
+                        "caller": {"type": "string"},
+                        "token": {"type": "string"},
+                    },
+                    "required": ["profile_id"],
+                    "additionalProperties": False,
+                },
+            ),
+        ]
+
+    def _validate_required_tool_arguments(self, name: str, arguments: Any) -> Optional[Dict[str, Any]]:
+        if not isinstance(arguments, dict):
+            return ToolResult.error_result("Tool arguments must be a JSON object").model_dump()
+
+        required_by_tool = {
+            "ssh.exec": ["profile_id", "command"],
+            "sftp.transfer": ["profile_id", "direction", "remote_path", "local_path"],
+            "rsync.sync": ["profile_id", "direction", "source", "dest"],
+            "tunnel.create": ["profile_id", "tunnel_type"],
+            "tunnel.close": ["tunnel_id"],
+            "vpn.wireguard.toggle": ["profile_id", "peer_id", "action"],
+            "rdp.launch": ["profile_id"],
+        }
+        missing = [field for field in required_by_tool.get(name, []) if field not in arguments]
+        if missing:
+            return ToolResult.error_result(
+                f"Missing required arguments for {name}: {', '.join(missing)}"
+            ).model_dump()
+        null_required_fields = [field for field in required_by_tool.get(name, []) if arguments.get(field) is None]
+        if null_required_fields:
+            return ToolResult.error_result(
+                f"Required arguments cannot be null for {name}: {', '.join(null_required_fields)}"
+            ).model_dump()
+        return None
+
+    async def _dispatch_tool_call(self, name: str, arguments: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        arguments = arguments or {}
+        validation_error = self._validate_required_tool_arguments(name, arguments)
+        if validation_error:
+            return validation_error
+
+        if name == "ssh.exec":
+            return await self.handle_ssh_exec(
+                profile_id=arguments["profile_id"],
+                command=arguments["command"],
+                pty=arguments.get("pty", False),
+                sudo=arguments.get("sudo", False),
+                timeout_seconds=arguments.get("timeout_seconds", 60),
+                dry_run=arguments.get("dry_run", False),
+                change_ticket=arguments.get("change_ticket"),
+                caller=arguments.get("caller"),
+                token=arguments.get("token"),
+            )
+
+        if name == "sftp.transfer":
+            return await self.handle_sftp_transfer(
+                profile_id=arguments["profile_id"],
+                direction=arguments["direction"],
+                remote_path=arguments["remote_path"],
+                local_path=arguments["local_path"],
+                checksum=arguments.get("checksum"),
+                create_dirs=arguments.get("create_dirs", True),
+                mode=arguments.get("mode"),
+                caller=arguments.get("caller"),
+                token=arguments.get("token"),
+            )
+
+        if name == "rsync.sync":
+            return await self.handle_rsync_sync(
+                profile_id=arguments["profile_id"],
+                direction=arguments["direction"],
+                source=arguments["source"],
+                dest=arguments["dest"],
+                delete_extras=arguments.get("delete_extras", False),
+                dry_run=arguments.get("dry_run", True),
+                exclude=arguments.get("exclude"),
+                bandwidth_limit_kbps=arguments.get("bandwidth_limit_kbps"),
+                change_ticket=arguments.get("change_ticket"),
+                caller=arguments.get("caller"),
+                token=arguments.get("token"),
+            )
+
+        if name == "tunnel.create":
+            return await self.handle_tunnel_create(
+                profile_id=arguments["profile_id"],
+                tunnel_type=arguments["tunnel_type"],
+                listen_host=arguments.get("listen_host", "127.0.0.1"),
+                listen_port=arguments.get("listen_port", 0),
+                target_host=arguments.get("target_host"),
+                target_port=arguments.get("target_port"),
+                ttl_seconds=arguments.get("ttl_seconds", 3600),
+                caller=arguments.get("caller"),
+                token=arguments.get("token"),
+            )
+
+        if name == "tunnel.close":
+            return await self.handle_tunnel_close(
+                tunnel_id=arguments["tunnel_id"],
+                caller=arguments.get("caller"),
+                token=arguments.get("token"),
+            )
+
+        if name == "vpn.wireguard.toggle":
+            return await self.handle_vpn_wireguard_toggle(
+                profile_id=arguments["profile_id"],
+                peer_id=arguments["peer_id"],
+                action=arguments["action"],
+                config_path=arguments.get("config_path"),
+                interface_name=arguments.get("interface_name"),
+                caller=arguments.get("caller"),
+                token=arguments.get("token"),
+            )
+
+        if name == "rdp.launch":
+            return await self.handle_rdp_launch(
+                profile_id=arguments["profile_id"],
+                ttl_seconds=arguments.get("ttl_seconds", 3600),
+                domain=arguments.get("domain"),
+                gateway=arguments.get("gateway"),
+                caller=arguments.get("caller"),
+                token=arguments.get("token"),
+            )
+
+        return ToolResult.error_result(f"Unknown tool: {name}").model_dump()
+
+    async def web_list_tools(self) -> Dict[str, Any]:
+        tools = []
+        for tool in self._tool_definitions():
+            tools.append(
+                {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "inputSchema": tool.inputSchema,
+                }
+            )
+        return {"tools": tools}
+
+    async def web_call_tool(self, name: Optional[str], arguments: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        if not isinstance(name, str) or not name:
+            return ToolResult.error_result("Tool name is required").model_dump()
+        return await self._dispatch_tool_call(name, arguments)
+
+    async def web_jsonrpc(self, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        if not isinstance(payload, dict):
+            return {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {
+                    "code": -32600,
+                    "message": "Invalid Request",
+                },
+            }
+
+        if payload.get("jsonrpc") != "2.0" or not isinstance(payload.get("method"), str):
+            return {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {
+                    "code": -32600,
+                    "message": "Invalid Request",
+                },
+            }
+
+        request_id_present = "id" in payload
+        request_id = payload.get("id")
+        method = payload["method"]
+        params = payload.get("params")
+        if params is None:
+            params = {}
+        if not isinstance(params, dict):
+            return {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {
+                    "code": -32600,
+                    "message": "Invalid Request",
+                },
+            }
+
+        if method == "tools/list":
+            if not request_id_present:
+                return None
+            return {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": await self.web_list_tools(),
+            }
+
+        if method == "tools/call":
+            name = params.get("name")
+            arguments = params.get("arguments")
+            result = await self.web_call_tool(name=name, arguments=arguments)
+            if not request_id_present:
+                return None
+            return {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": result,
+            }
+
+        if not request_id_present:
+            return None
+        return {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "error": {
+                "code": -32601,
+                "message": f"Method not found: {method}",
+            },
+        }
     
     def _register_tools(self):
         """Register MCP tools using the new API."""
-        # Note: MCP v1.13.1 doesn't support decorator-based tool registration
-        # Tools are handled through the server's built-in capabilities and request handling
-        pass
+        @self.server.list_tools()
+        async def list_tools() -> List[mcp_types.Tool]:
+            return self._tool_definitions()
+
+        @self.server.call_tool()
+        async def call_tool(name: str, arguments: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+            return await self._dispatch_tool_call(name, arguments)
     
     # Method aliases for backward compatibility with tests
     async def ssh_exec(self, *args, **kwargs):

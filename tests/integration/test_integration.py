@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch, Mock
 import json
 
+from mcp import types as mcp_types
 from openaccess_mcp.server import OpenAccessMCPServer
 from openaccess_mcp.types import Profile, AuthRef, Policy
 from openaccess_mcp.secrets.store import SecretStore
@@ -91,6 +92,341 @@ class TestOpenAccessMCPServer:
         assert server.tunnel_provider is not None
         assert server.vpn_provider is not None
         assert server.rdp_provider is not None
+
+    @pytest.mark.asyncio
+    async def test_mcp_list_tools_registers_supported_tools(self, server):
+        """Test MCP tool registration for all currently wired tools."""
+        list_tools_handler = server.server.request_handlers[mcp_types.ListToolsRequest]
+
+        result = await list_tools_handler(mcp_types.ListToolsRequest())
+
+        assert isinstance(result.root, mcp_types.ListToolsResult)
+        tool_names = {tool.name for tool in result.root.tools}
+        assert "ssh.exec" in tool_names
+        assert "sftp.transfer" in tool_names
+        assert "rsync.sync" in tool_names
+        assert "tunnel.create" in tool_names
+        assert "tunnel.close" in tool_names
+        assert "vpn.wireguard.toggle" in tool_names
+        assert "rdp.launch" in tool_names
+
+    @pytest.mark.asyncio
+    async def test_mcp_call_tool_routes_to_supported_handlers(self, server):
+        """Test MCP call routing for all currently wired tools."""
+        call_tool_handler = server.server.request_handlers[mcp_types.CallToolRequest]
+
+        with patch.object(server, "handle_ssh_exec", new=AsyncMock(return_value={"success": True, "data": {"stdout": "ok"}})) as mock_ssh:
+            ssh_result = await call_tool_handler(
+                mcp_types.CallToolRequest(
+                    params=mcp_types.CallToolRequestParams(
+                        name="ssh.exec",
+                        arguments={"profile_id": "test-server", "command": "echo ok"}
+                    )
+                )
+            )
+
+            assert isinstance(ssh_result.root, mcp_types.CallToolResult)
+            assert ssh_result.root.isError is False
+            assert ssh_result.root.structuredContent["success"] is True
+            mock_ssh.assert_awaited_once_with(
+                profile_id="test-server",
+                command="echo ok",
+                pty=False,
+                sudo=False,
+                timeout_seconds=60,
+                dry_run=False,
+                change_ticket=None,
+                caller=None,
+                token=None
+            )
+
+        with patch.object(server, "handle_sftp_transfer", new=AsyncMock(return_value={"success": True, "data": {"status": "completed"}})) as mock_sftp:
+            sftp_result = await call_tool_handler(
+                mcp_types.CallToolRequest(
+                    params=mcp_types.CallToolRequestParams(
+                        name="sftp.transfer",
+                        arguments={
+                            "profile_id": "test-server",
+                            "direction": "get",
+                            "remote_path": "/remote/file.txt",
+                            "local_path": "/tmp/file.txt"
+                        }
+                    )
+                )
+            )
+
+            assert isinstance(sftp_result.root, mcp_types.CallToolResult)
+            assert sftp_result.root.isError is False
+            assert sftp_result.root.structuredContent["success"] is True
+            mock_sftp.assert_awaited_once_with(
+                profile_id="test-server",
+                direction="get",
+                remote_path="/remote/file.txt",
+                local_path="/tmp/file.txt",
+                checksum=None,
+                create_dirs=True,
+                mode=None,
+                caller=None,
+                token=None
+            )
+
+        with patch.object(server, "handle_rsync_sync", new=AsyncMock(return_value={"success": True, "data": {"status": "completed"}})) as mock_rsync:
+            rsync_result = await call_tool_handler(
+                mcp_types.CallToolRequest(
+                    params=mcp_types.CallToolRequestParams(
+                        name="rsync.sync",
+                        arguments={
+                            "profile_id": "test-server",
+                            "direction": "push",
+                            "source": "/tmp/src",
+                            "dest": "/tmp/dest",
+                        },
+                    )
+                )
+            )
+
+            assert isinstance(rsync_result.root, mcp_types.CallToolResult)
+            assert rsync_result.root.isError is False
+            assert rsync_result.root.structuredContent["success"] is True
+            mock_rsync.assert_awaited_once_with(
+                profile_id="test-server",
+                direction="push",
+                source="/tmp/src",
+                dest="/tmp/dest",
+                delete_extras=False,
+                dry_run=True,
+                exclude=None,
+                bandwidth_limit_kbps=None,
+                change_ticket=None,
+                caller=None,
+                token=None,
+            )
+
+        with patch.object(server, "handle_tunnel_create", new=AsyncMock(return_value={"success": True, "data": {"tunnel_id": "t-1"}})) as mock_tunnel_create:
+            tunnel_create_result = await call_tool_handler(
+                mcp_types.CallToolRequest(
+                    params=mcp_types.CallToolRequestParams(
+                        name="tunnel.create",
+                        arguments={
+                            "profile_id": "test-server",
+                            "tunnel_type": "local",
+                            "target_host": "127.0.0.1",
+                            "target_port": 8080,
+                        },
+                    )
+                )
+            )
+
+            assert isinstance(tunnel_create_result.root, mcp_types.CallToolResult)
+            assert tunnel_create_result.root.isError is False
+            assert tunnel_create_result.root.structuredContent["success"] is True
+            mock_tunnel_create.assert_awaited_once_with(
+                profile_id="test-server",
+                tunnel_type="local",
+                listen_host="127.0.0.1",
+                listen_port=0,
+                target_host="127.0.0.1",
+                target_port=8080,
+                ttl_seconds=3600,
+                caller=None,
+                token=None,
+            )
+
+        with patch.object(server, "handle_tunnel_close", new=AsyncMock(return_value={"success": True, "data": {"status": "closed"}})) as mock_tunnel_close:
+            tunnel_close_result = await call_tool_handler(
+                mcp_types.CallToolRequest(
+                    params=mcp_types.CallToolRequestParams(
+                        name="tunnel.close",
+                        arguments={"tunnel_id": "t-1"},
+                    )
+                )
+            )
+
+            assert isinstance(tunnel_close_result.root, mcp_types.CallToolResult)
+            assert tunnel_close_result.root.isError is False
+            assert tunnel_close_result.root.structuredContent["success"] is True
+            mock_tunnel_close.assert_awaited_once_with(
+                tunnel_id="t-1",
+                caller=None,
+                token=None,
+            )
+
+        with patch.object(server, "handle_vpn_wireguard_toggle", new=AsyncMock(return_value={"success": True, "data": {"status": "up"}})) as mock_vpn:
+            vpn_result = await call_tool_handler(
+                mcp_types.CallToolRequest(
+                    params=mcp_types.CallToolRequestParams(
+                        name="vpn.wireguard.toggle",
+                        arguments={
+                            "profile_id": "test-server",
+                            "peer_id": "peer-1",
+                            "action": "up",
+                        },
+                    )
+                )
+            )
+
+            assert isinstance(vpn_result.root, mcp_types.CallToolResult)
+            assert vpn_result.root.isError is False
+            assert vpn_result.root.structuredContent["success"] is True
+            mock_vpn.assert_awaited_once_with(
+                profile_id="test-server",
+                peer_id="peer-1",
+                action="up",
+                config_path=None,
+                interface_name=None,
+                caller=None,
+                token=None,
+            )
+
+        with patch.object(server, "handle_rdp_launch", new=AsyncMock(return_value={"success": True, "data": {"connection_id": "rdp-1"}})) as mock_rdp:
+            rdp_result = await call_tool_handler(
+                mcp_types.CallToolRequest(
+                    params=mcp_types.CallToolRequestParams(
+                        name="rdp.launch",
+                        arguments={"profile_id": "test-server"},
+                    )
+                )
+            )
+
+            assert isinstance(rdp_result.root, mcp_types.CallToolResult)
+            assert rdp_result.root.isError is False
+            assert rdp_result.root.structuredContent["success"] is True
+            mock_rdp.assert_awaited_once_with(
+                profile_id="test-server",
+                ttl_seconds=3600,
+                domain=None,
+                gateway=None,
+                caller=None,
+                token=None,
+            )
+
+    @pytest.mark.asyncio
+    async def test_web_api_list_tools_returns_supported_tools(self, server):
+        """Test web API tool listing."""
+        result = await server.web_list_tools()
+
+        tool_names = {tool["name"] for tool in result["tools"]}
+        assert "ssh.exec" in tool_names
+        assert "sftp.transfer" in tool_names
+        assert "rsync.sync" in tool_names
+        assert "tunnel.create" in tool_names
+        assert "tunnel.close" in tool_names
+        assert "vpn.wireguard.toggle" in tool_names
+        assert "rdp.launch" in tool_names
+
+    @pytest.mark.asyncio
+    async def test_web_api_call_tool_routes_to_handlers(self, server):
+        """Test web API tool call routing."""
+        with patch.object(server, "handle_ssh_exec", new=AsyncMock(return_value={"success": True, "data": {"stdout": "ok"}})) as mock_ssh:
+            result = await server.web_call_tool(
+                name="ssh.exec",
+                arguments={"profile_id": "test-server", "command": "echo ok"},
+            )
+
+            assert result["success"] is True
+            mock_ssh.assert_awaited_once_with(
+                profile_id="test-server",
+                command="echo ok",
+                pty=False,
+                sudo=False,
+                timeout_seconds=60,
+                dry_run=False,
+                change_ticket=None,
+                caller=None,
+                token=None,
+            )
+
+    @pytest.mark.asyncio
+    async def test_web_api_call_tool_validates_required_arguments(self, server):
+        """Test web API required-argument validation."""
+        result = await server.web_call_tool(
+            name="ssh.exec",
+            arguments={"profile_id": "test-server"},
+        )
+
+        assert result["success"] is False
+        assert "Missing required arguments" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_web_api_jsonrpc_tools_methods(self, server):
+        """Test web API JSON-RPC dispatch."""
+        list_result = await server.web_jsonrpc(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/list",
+                "params": {},
+            }
+        )
+
+        assert list_result["id"] == 1
+        assert "tools" in list_result["result"]
+
+        with patch.object(server, "handle_sftp_transfer", new=AsyncMock(return_value={"success": True, "data": {"status": "completed"}})) as mock_sftp:
+            call_result = await server.web_jsonrpc(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "sftp.transfer",
+                        "arguments": {
+                            "profile_id": "test-server",
+                            "direction": "get",
+                            "remote_path": "/remote/file.txt",
+                            "local_path": "/tmp/file.txt",
+                        },
+                    },
+                }
+            )
+
+            assert call_result["id"] == 2
+            assert call_result["result"]["success"] is True
+            mock_sftp.assert_awaited_once()
+
+        unknown_result = await server.web_jsonrpc(
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "unknown/method",
+            }
+        )
+        assert unknown_result["id"] == 3
+        assert unknown_result["error"]["code"] == -32601
+
+    @pytest.mark.asyncio
+    async def test_web_api_jsonrpc_notification_returns_no_response(self, server):
+        """Test web API JSON-RPC notifications return no response."""
+        with patch.object(server, "handle_ssh_exec", new=AsyncMock(return_value={"success": True, "data": {"stdout": "ok"}})) as mock_ssh:
+            result = await server.web_jsonrpc(
+                {
+                    "jsonrpc": "2.0",
+                    "method": "tools/call",
+                    "params": {
+                        "name": "ssh.exec",
+                        "arguments": {
+                            "profile_id": "test-server",
+                            "command": "echo ok",
+                        },
+                    },
+                }
+            )
+
+            assert result is None
+            mock_ssh.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_web_api_jsonrpc_invalid_request_returns_standard_error(self, server):
+        """Test JSON-RPC invalid request handling."""
+        result = await server.web_jsonrpc(
+            {
+                "id": 1,
+                "method": "tools/list",
+            }
+        )
+
+        assert result["id"] is None
+        assert result["error"]["code"] == -32600
     
     @pytest.mark.asyncio
     async def test_profile_loading(self, server):

@@ -1,7 +1,10 @@
 """CLI for OpenAccess MCP."""
 
 import asyncio
+import json
 import sys
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Optional
 
@@ -16,6 +19,8 @@ from .secrets import initialize_secret_store
 
 app = typer.Typer(help="OpenAccess MCP - Secure remote access server")
 console = Console()
+MAX_HTTP_BODY_BYTES = 1024 * 1024
+LOOP_THREAD_JOIN_TIMEOUT_SECONDS = 2
 
 
 @app.command()
@@ -290,6 +295,153 @@ def version():
     """Show version information."""
     from . import __version__
     console.print(f"[bold blue]OpenAccess MCP[/bold blue] version {__version__}")
+
+
+@app.command()
+def serve(
+    host: str = typer.Option(
+        "127.0.0.1",
+        "--host",
+        help="Host interface for the web API server"
+    ),
+    port: int = typer.Option(
+        8000,
+        "--port",
+        help="Port for the web API server"
+    ),
+    profiles: Path = typer.Option(
+        "./profiles",
+        "--profiles",
+        "-p",
+        help="Directory containing profile JSON files"
+    ),
+    secrets_dir: Optional[Path] = typer.Option(
+        None,
+        "--secrets-dir",
+        help="Directory for file-based secrets"
+    ),
+):
+    """Serve MCP tools over HTTP endpoints."""
+    if not profiles.exists():
+        console.print(f"[red]Error: Profiles directory not found: {profiles}[/red]")
+        raise typer.Exit(code=1)
+
+    server = OpenAccessMCPServer(
+        profiles_dir=profiles,
+        secrets_dir=secrets_dir,
+    )
+    event_loop = asyncio.new_event_loop()
+    loop_ready = threading.Event()
+
+    def run_event_loop():
+        asyncio.set_event_loop(event_loop)
+        loop_ready.set()
+        event_loop.run_forever()
+
+    loop_thread = threading.Thread(target=run_event_loop, name="openaccess-mcp-event-loop", daemon=False)
+    loop_thread.start()
+    loop_ready.wait()
+
+    def run_async(coro):
+        future = asyncio.run_coroutine_threadsafe(coro, event_loop)
+        return future.result()
+
+    class OpenAccessHTTPRequestHandler(BaseHTTPRequestHandler):
+        max_body_bytes = MAX_HTTP_BODY_BYTES
+
+        def _write_json(self, status: int, payload: dict) -> None:
+            body = json.dumps(payload).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _read_json(self) -> dict:
+            content_length = int(self.headers.get("Content-Length", "0"))
+            if content_length <= 0:
+                return {}
+            if content_length > self.max_body_bytes:
+                raise ValueError(
+                    f"Request body too large: {content_length} bytes exceeds limit "
+                    f"of {self.max_body_bytes} bytes"
+                )
+            raw = self.rfile.read(content_length)
+            return json.loads(raw.decode("utf-8"))
+
+        def do_GET(self):  # noqa: N802 - required by BaseHTTPRequestHandler
+            if self.path == "/health":
+                self._write_json(200, {"status": "ok"})
+                return
+
+            if self.path == "/api/v1/tools":
+                try:
+                    self._write_json(200, run_async(server.web_list_tools()))
+                except Exception as error:
+                    self._write_json(500, {"error": str(error)})
+                return
+
+            self._write_json(404, {"error": "Not found"})
+
+        def do_POST(self):  # noqa: N802 - required by BaseHTTPRequestHandler
+            try:
+                payload = self._read_json()
+            except (json.JSONDecodeError, ValueError) as error:
+                self._write_json(400, {"error": str(error)})
+                return
+
+            if self.path == "/api/v1/tools/call":
+                try:
+                    response = run_async(
+                        server.web_call_tool(
+                            name=payload.get("name"),
+                            arguments=payload.get("arguments"),
+                        )
+                    )
+                except Exception as error:
+                    self._write_json(500, {"error": str(error)})
+                    return
+                self._write_json(200, response)
+                return
+
+            if self.path == "/api/v1/mcp":
+                try:
+                    response = run_async(server.web_jsonrpc(payload))
+                except Exception as error:
+                    self._write_json(500, {"error": str(error)})
+                    return
+                if response is None:
+                    self.send_response(204)
+                    self.end_headers()
+                    return
+                self._write_json(200, response)
+                return
+
+            self._write_json(404, {"error": "Not found"})
+
+        def log_message(self, message_format, *args):
+            """Disable default HTTP request logging for cleaner CLI output."""
+            pass
+
+    httpd = ThreadingHTTPServer((host, port), OpenAccessHTTPRequestHandler)
+
+    console.print(
+        f"[green]✓[/green] Web API server listening on http://{host}:{port}\n"
+        f"[dim]GET /health, GET /api/v1/tools, POST /api/v1/tools/call, POST /api/v1/mcp[/dim]"
+    )
+
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        httpd.server_close()
+        try:
+            run_async(server.cleanup())
+        finally:
+            event_loop.call_soon_threadsafe(event_loop.stop)
+            loop_thread.join(timeout=LOOP_THREAD_JOIN_TIMEOUT_SECONDS)
+            event_loop.close()
 
 
 if __name__ == "__main__":
