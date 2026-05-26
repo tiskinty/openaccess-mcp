@@ -69,8 +69,13 @@ to_absolute_path() {
     realpath "${path}"
   elif command -v readlink >/dev/null 2>&1 && readlink -f / >/dev/null 2>&1; then
     readlink -f "${path}"
-  else
+  elif command -v python >/dev/null 2>&1; then
     python -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "${path}"
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "${path}"
+  else
+    echo "Unable to resolve absolute path for: ${path}" >&2
+    return 1
   fi
 }
 
