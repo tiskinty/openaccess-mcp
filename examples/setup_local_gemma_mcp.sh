@@ -65,8 +65,12 @@ to_absolute_path() {
   local path="$1"
   if [[ "${path}" = /* ]]; then
     echo "${path}"
-  else
+  elif command -v realpath >/dev/null 2>&1; then
+    realpath "${path}"
+  elif command -v readlink >/dev/null 2>&1 && readlink -f / >/dev/null 2>&1; then
     readlink -f "${path}"
+  else
+    python -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "${path}"
   fi
 }
 
@@ -93,7 +97,7 @@ After=network-online.target
 
 [Service]
 Type=simple
-ExecStart=${openaccess_mcp_bin} serve --host ${MCP_HOST} --port ${MCP_PORT} --profiles ${profiles_dir} --secrets-dir ${secrets_dir}
+ExecStart="${openaccess_mcp_bin}" serve --host "${MCP_HOST}" --port "${MCP_PORT}" --profiles "${profiles_dir}" --secrets-dir "${secrets_dir}"
 Restart=on-failure
 RestartSec=5
 
