@@ -61,6 +61,15 @@ start_mcp_background() {
   STARTED_MCP=1
 }
 
+to_absolute_path() {
+  local path="$1"
+  if [[ "${path}" = /* ]]; then
+    echo "${path}"
+  else
+    readlink -f "${path}"
+  fi
+}
+
 install_startup_service() {
   if ! command -v systemctl >/dev/null 2>&1; then
     echo "systemctl not found; skipping startup service installation."
@@ -70,7 +79,11 @@ install_startup_service() {
   local service_dir="${HOME}/.config/systemd/user"
   local service_file="${service_dir}/openaccess-mcp.service"
   local openaccess_mcp_bin
+  local profiles_dir
+  local secrets_dir
   openaccess_mcp_bin="$(command -v openaccess-mcp)"
+  profiles_dir="$(to_absolute_path "${MCP_PROFILES_DIR}")"
+  secrets_dir="$(to_absolute_path "${MCP_SECRETS_DIR}")"
 
   mkdir -p "${service_dir}"
   cat > "${service_file}" <<EOF
@@ -80,8 +93,9 @@ After=network-online.target
 
 [Service]
 Type=simple
-ExecStart=${openaccess_mcp_bin} serve --host ${MCP_HOST} --port ${MCP_PORT} --profiles ${MCP_PROFILES_DIR} --secrets-dir ${MCP_SECRETS_DIR}
+ExecStart=${openaccess_mcp_bin} serve --host ${MCP_HOST} --port ${MCP_PORT} --profiles ${profiles_dir} --secrets-dir ${secrets_dir}
 Restart=on-failure
+RestartSec=5
 
 [Install]
 WantedBy=default.target
