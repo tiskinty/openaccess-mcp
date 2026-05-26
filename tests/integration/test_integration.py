@@ -337,6 +337,17 @@ class TestOpenAccessMCPServer:
             )
 
     @pytest.mark.asyncio
+    async def test_web_api_call_tool_validates_required_arguments(self, server):
+        """Test web API required-argument validation."""
+        result = await server.web_call_tool(
+            name="ssh.exec",
+            arguments={"profile_id": "test-server"},
+        )
+
+        assert result["success"] is False
+        assert "Missing required arguments" in result["error"]
+
+    @pytest.mark.asyncio
     async def test_web_api_jsonrpc_tools_methods(self, server):
         """Test web API JSON-RPC dispatch."""
         list_result = await server.web_jsonrpc(
@@ -382,6 +393,40 @@ class TestOpenAccessMCPServer:
         )
         assert unknown_result["id"] == 3
         assert unknown_result["error"]["code"] == -32601
+
+    @pytest.mark.asyncio
+    async def test_web_api_jsonrpc_notification_returns_no_response(self, server):
+        """Test web API JSON-RPC notifications return no response."""
+        with patch.object(server, "handle_ssh_exec", new=AsyncMock(return_value={"success": True, "data": {"stdout": "ok"}})) as mock_ssh:
+            result = await server.web_jsonrpc(
+                {
+                    "jsonrpc": "2.0",
+                    "method": "tools/call",
+                    "params": {
+                        "name": "ssh.exec",
+                        "arguments": {
+                            "profile_id": "test-server",
+                            "command": "echo ok",
+                        },
+                    },
+                }
+            )
+
+            assert result is None
+            mock_ssh.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_web_api_jsonrpc_invalid_request_returns_standard_error(self, server):
+        """Test JSON-RPC invalid request handling."""
+        result = await server.web_jsonrpc(
+            {
+                "id": 1,
+                "method": "tools/list",
+            }
+        )
+
+        assert result["id"] is None
+        assert result["error"]["code"] == -32600
     
     @pytest.mark.asyncio
     async def test_profile_loading(self, server):

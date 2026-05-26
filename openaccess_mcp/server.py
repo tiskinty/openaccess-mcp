@@ -215,7 +215,37 @@ class OpenAccessMCPServer:
             ),
         ]
 
-    async def _dispatch_tool_call(self, name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    def _validate_required_tool_arguments(self, name: str, arguments: Any) -> Optional[Dict[str, Any]]:
+        if not isinstance(arguments, dict):
+            return ToolResult.error_result("Tool arguments must be a JSON object").model_dump()
+
+        required_by_tool = {
+            "ssh.exec": ["profile_id", "command"],
+            "sftp.transfer": ["profile_id", "direction", "remote_path", "local_path"],
+            "rsync.sync": ["profile_id", "direction", "source", "dest"],
+            "tunnel.create": ["profile_id", "tunnel_type"],
+            "tunnel.close": ["tunnel_id"],
+            "vpn.wireguard.toggle": ["profile_id", "peer_id", "action"],
+            "rdp.launch": ["profile_id"],
+        }
+        missing = [field for field in required_by_tool.get(name, []) if field not in arguments]
+        if missing:
+            return ToolResult.error_result(
+                f"Missing required arguments for {name}: {', '.join(missing)}"
+            ).model_dump()
+        null_required_fields = [field for field in required_by_tool.get(name, []) if arguments.get(field) is None]
+        if null_required_fields:
+            return ToolResult.error_result(
+                f"Required arguments cannot be null for {name}: {', '.join(null_required_fields)}"
+            ).model_dump()
+        return None
+
+    async def _dispatch_tool_call(self, name: str, arguments: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        arguments = arguments or {}
+        validation_error = self._validate_required_tool_arguments(name, arguments)
+        if validation_error:
+            return validation_error
+
         if name == "ssh.exec":
             return await self.handle_ssh_exec(
                 profile_id=arguments["profile_id"],
@@ -312,17 +342,51 @@ class OpenAccessMCPServer:
             )
         return {"tools": tools}
 
-    async def web_call_tool(self, name: str, arguments: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        if not name:
+    async def web_call_tool(self, name: Optional[str], arguments: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        if not isinstance(name, str) or not name:
             return ToolResult.error_result("Tool name is required").model_dump()
-        return await self._dispatch_tool_call(name, arguments or {})
+        return await self._dispatch_tool_call(name, arguments)
 
-    async def web_jsonrpc(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    async def web_jsonrpc(self, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        if not isinstance(payload, dict):
+            return {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {
+                    "code": -32600,
+                    "message": "Invalid Request",
+                },
+            }
+
+        if payload.get("jsonrpc") != "2.0" or not isinstance(payload.get("method"), str):
+            return {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {
+                    "code": -32600,
+                    "message": "Invalid Request",
+                },
+            }
+
+        request_id_present = "id" in payload
         request_id = payload.get("id")
-        method = payload.get("method")
-        params = payload.get("params") or {}
+        method = payload["method"]
+        params = payload.get("params")
+        if params is None:
+            params = {}
+        if not isinstance(params, dict):
+            return {
+                "jsonrpc": "2.0",
+                "id": None,
+                "error": {
+                    "code": -32600,
+                    "message": "Invalid Request",
+                },
+            }
 
         if method == "tools/list":
+            if not request_id_present:
+                return None
             return {
                 "jsonrpc": "2.0",
                 "id": request_id,
@@ -331,14 +395,18 @@ class OpenAccessMCPServer:
 
         if method == "tools/call":
             name = params.get("name")
-            arguments = params.get("arguments") or {}
+            arguments = params.get("arguments")
             result = await self.web_call_tool(name=name, arguments=arguments)
+            if not request_id_present:
+                return None
             return {
                 "jsonrpc": "2.0",
                 "id": request_id,
                 "result": result,
             }
 
+        if not request_id_present:
+            return None
         return {
             "jsonrpc": "2.0",
             "id": request_id,
@@ -355,7 +423,7 @@ class OpenAccessMCPServer:
             return self._tool_definitions()
 
         @self.server.call_tool()
-        async def call_tool(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        async def call_tool(name: str, arguments: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
             return await self._dispatch_tool_call(name, arguments)
     
     # Method aliases for backward compatibility with tests

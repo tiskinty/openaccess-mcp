@@ -3,6 +3,7 @@
 import asyncio
 import json
 import sys
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Optional
@@ -19,6 +20,7 @@ from .secrets import initialize_secret_store
 app = typer.Typer(help="OpenAccess MCP - Secure remote access server")
 console = Console()
 MAX_HTTP_BODY_BYTES = 1024 * 1024
+LOOP_THREAD_JOIN_TIMEOUT_SECONDS = 2
 
 
 @app.command()
@@ -328,6 +330,21 @@ def serve(
         profiles_dir=profiles,
         secrets_dir=secrets_dir,
     )
+    event_loop = asyncio.new_event_loop()
+    loop_ready = threading.Event()
+
+    def run_event_loop():
+        asyncio.set_event_loop(event_loop)
+        loop_ready.set()
+        event_loop.run_forever()
+
+    loop_thread = threading.Thread(target=run_event_loop, name="openaccess-mcp-event-loop", daemon=False)
+    loop_thread.start()
+    loop_ready.wait()
+
+    def run_async(coro):
+        future = asyncio.run_coroutine_threadsafe(coro, event_loop)
+        return future.result()
 
     class OpenAccessHTTPRequestHandler(BaseHTTPRequestHandler):
         max_body_bytes = MAX_HTTP_BODY_BYTES
@@ -358,7 +375,10 @@ def serve(
                 return
 
             if self.path == "/api/v1/tools":
-                self._write_json(200, asyncio.run(server.web_list_tools()))
+                try:
+                    self._write_json(200, run_async(server.web_list_tools()))
+                except Exception as error:
+                    self._write_json(500, {"error": str(error)})
                 return
 
             self._write_json(404, {"error": "Not found"})
@@ -371,17 +391,29 @@ def serve(
                 return
 
             if self.path == "/api/v1/tools/call":
-                response = asyncio.run(
-                    server.web_call_tool(
-                        name=payload.get("name"),
-                        arguments=payload.get("arguments"),
+                try:
+                    response = run_async(
+                        server.web_call_tool(
+                            name=payload.get("name"),
+                            arguments=payload.get("arguments"),
+                        )
                     )
-                )
+                except Exception as error:
+                    self._write_json(500, {"error": str(error)})
+                    return
                 self._write_json(200, response)
                 return
 
             if self.path == "/api/v1/mcp":
-                response = asyncio.run(server.web_jsonrpc(payload))
+                try:
+                    response = run_async(server.web_jsonrpc(payload))
+                except Exception as error:
+                    self._write_json(500, {"error": str(error)})
+                    return
+                if response is None:
+                    self.send_response(204)
+                    self.end_headers()
+                    return
                 self._write_json(200, response)
                 return
 
@@ -404,7 +436,12 @@ def serve(
         pass
     finally:
         httpd.server_close()
-        asyncio.run(server.cleanup())
+        try:
+            run_async(server.cleanup())
+        finally:
+            event_loop.call_soon_threadsafe(event_loop.stop)
+            loop_thread.join(timeout=LOOP_THREAD_JOIN_TIMEOUT_SECONDS)
+            event_loop.close()
 
 
 if __name__ == "__main__":

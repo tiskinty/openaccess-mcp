@@ -6,7 +6,7 @@ Current package version: `0.0.1` (alpha).
 
 ## Current state (important)
 
-This repository currently provides two practical ways to use the project:
+This repository currently provides three practical ways to use the project:
 
 1. **As a Python library**, by creating `OpenAccessMCPServer` and calling its async handler methods (for example `ssh_exec`, `sftp_transfer`, `rsync_sync`, `tunnel_create`).
 2. **As a CLI utility** for server bootstrap and audit tooling (`openaccess-mcp ...`, `openaccess-audit ...`).

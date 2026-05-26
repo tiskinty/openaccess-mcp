@@ -16,6 +16,7 @@ LOG_FILE="${LOG_DIR}/openaccess-mcp-serve.log"
 RUN_MCP_BACKGROUND=0
 INSTALL_STARTUP=0
 STARTED_MCP=0
+PYTHON_BIN=""
 
 usage() {
   cat <<EOF
@@ -49,6 +50,15 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
+if command -v python >/dev/null 2>&1; then
+  PYTHON_BIN="python"
+elif command -v python3 >/dev/null 2>&1; then
+  PYTHON_BIN="python3"
+else
+  echo "Python (python or python3) is required but not installed."
+  exit 1
+fi
+
 start_mcp_background() {
   mkdir -p "${LOG_DIR}"
   openaccess-mcp serve \
@@ -69,13 +79,8 @@ to_absolute_path() {
     realpath "${path}"
   elif command -v readlink >/dev/null 2>&1 && readlink -f / >/dev/null 2>&1; then
     readlink -f "${path}"
-  elif command -v python >/dev/null 2>&1; then
-    python -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "${path}"
-  elif command -v python3 >/dev/null 2>&1; then
-    python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "${path}"
   else
-    echo "Unable to resolve absolute path for: ${path}" >&2
-    return 1
+    "${PYTHON_BIN}" -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "${path}"
   fi
 }
 
@@ -168,7 +173,7 @@ mkdir -p "${ROOT_DIR}/examples/gemma"
 export MCP_BASE_URL
 export GEMMA_MODEL
 export OLLAMA_BASE_URL
-python - <<'PY'
+"${PYTHON_BIN}" - <<'PY'
 import json
 import os
 import urllib.request
